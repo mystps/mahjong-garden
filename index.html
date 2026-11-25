@@ -46,9 +46,8 @@ canvas{display:block;}
 #win .act{flex:none;width:70%;margin:0 auto;}
 #leaves{display:none;position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none;overflow:hidden;z-index:11;}
 #win[style*="block"] + #leaves{display:block;}
-#leaves i{position:absolute;top:-40px;width:26px;height:26px;opacity:0;animation:fall 5s linear infinite;}
+#leaves i{position:absolute;left:0;top:0;display:block;opacity:0.95;will-change:transform;}
 #leaves i svg{width:100%;height:100%;display:block;}
-@keyframes fall{0%{transform:translate(0,0) rotate(0deg);opacity:0;}10%{opacity:1;}100%{transform:translate(40px,900px) rotate(360deg);opacity:0.9;}}
 </style>
 </head>
 <body>
@@ -659,17 +658,98 @@ canvas{display:block;}
   document.getElementById('top').style.backgroundImage = 'url(' + bark + ')';
   document.getElementById('actions').style.backgroundImage = 'url(' + bark + ')';
 
-  // falling leaves on the win screen
-  var leaf = document.getElementById('leaves'), k, el, cols = ['#d9822b', '#c4492f', '#e6b422', '#7fb04a', '#b5651d'];
+  // Leaves on the win screen: simple physics, finger or mouse pushes them.
+  var win = document.getElementById('win'), box = document.getElementById('leaves');
+  var cols = ['#d9822b', '#c4492f', '#e6b422', '#7fb04a', '#b5651d'];
   var leafSvg = '<svg viewBox="0 0 24 24" fill="COLOR" stroke="#3f2a18" stroke-width="1.2" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/></svg>';
-  for (k = 0; k < 16; k++) {
-    el = document.createElement('i');
-    el.style.left = (Math.random() * 92) + '%';
-    el.style.animationDelay = (Math.random() * 5).toFixed(2) + 's';
-    el.style.animationDuration = (4 + Math.random() * 3).toFixed(2) + 's';
-    el.innerHTML = leafSvg.replace('COLOR', cols[k % cols.length]);
-    leaf.appendChild(el);
+  var L = [], N = 18, k, W = 360, H = 640, running = false, last = 0, P = { x: 0, y: 0, t: 0, on: false };
+  function visible() { return win.style.display === 'block'; }
+  function respawn(o, stagger) {
+    o.x = 12 + Math.random() * (W - 24);
+    o.y = stagger ? -Math.random() * H * 0.8 - 30 : -40;
+    o.vx = (Math.random() - 0.5) * 30; o.vy = Math.random() * 30;
+    o.r = Math.random() * 360; o.vr = (Math.random() - 0.5) * 90;
   }
+  for (k = 0; k < N; k++) {
+    var el = document.createElement('i'), sz = 32 + Math.random() * 14;
+    el.style.width = sz + 'px'; el.style.height = sz + 'px';
+    el.innerHTML = leafSvg.replace('COLOR', cols[k % cols.length]);
+    box.appendChild(el);
+    L.push({ el: el, s: sz, x: 0, y: -100, vx: 0, vy: 0, r: 0, vr: 0, t: Math.random() * 6, ph: Math.random() * 6.28 });
+  }
+  function push(x, y, pvx, pvy) {
+    var i, o, dx, dy, d, f, R = 85, sp;
+    for (i = 0; i < L.length; i++) {
+      o = L[i]; dx = o.x - x; dy = o.y - y; d = Math.sqrt(dx * dx + dy * dy);
+      if (d < R) {
+        f = 1 - d / R;
+        o.vx += pvx * 0.6 * f + (dx / (d + 1)) * 50 * f;
+        o.vy += pvy * 0.6 * f + (dy / (d + 1)) * 50 * f;
+        o.vr += (Math.random() - 0.5) * 500 * f + pvx * 0.15 * f;
+        sp = Math.sqrt(o.vx * o.vx + o.vy * o.vy);
+        if (sp > 1400) { o.vx *= 1400 / sp; o.vy *= 1400 / sp; }
+      }
+    }
+  }
+  function burst(x, y) {
+    var i, o, dx, dy, d, f, R = 120;
+    for (i = 0; i < L.length; i++) {
+      o = L[i]; dx = o.x - x; dy = o.y - y; d = Math.sqrt(dx * dx + dy * dy);
+      if (d < R) { f = 1 - d / R; o.vx += (dx / (d + 1)) * 520 * f; o.vy += (dy / (d + 1)) * 520 * f - 150 * f; o.vr += (Math.random() - 0.5) * 700 * f; }
+    }
+  }
+  function local(cx, cy) { var rc = box.getBoundingClientRect(); return { x: cx - rc.left, y: cy - rc.top }; }
+  function move(cx, cy) {
+    if (!visible()) { return; }
+    var q = local(cx, cy), now = (window.performance && performance.now) ? performance.now() : +new Date(), dt, pvx, pvy, sp;
+    if (P.on) {
+      dt = Math.max(0.008, (now - P.t) / 1000);
+      pvx = (q.x - P.x) / dt; pvy = (q.y - P.y) / dt;
+      sp = Math.sqrt(pvx * pvx + pvy * pvy);
+      if (sp > 1800) { pvx *= 1800 / sp; pvy *= 1800 / sp; }
+      push(q.x, q.y, pvx, pvy);
+    }
+    P.x = q.x; P.y = q.y; P.t = now; P.on = true;
+  }
+  document.addEventListener('touchstart', function (e) {
+    var t = e.touches[0]; if (!t || !visible()) { return; }
+    var q = local(t.clientX, t.clientY); burst(q.x, q.y);
+    P.on = false; move(t.clientX, t.clientY);
+  }, false);
+  document.addEventListener('touchmove', function (e) { var t = e.touches[0]; if (t) { move(t.clientX, t.clientY); } }, false);
+  document.addEventListener('touchend', function () { P.on = false; }, false);
+  document.addEventListener('mousemove', function (e) { move(e.clientX, e.clientY); }, false);
+  document.addEventListener('mouseleave', function () { P.on = false; }, false);
+
+  function tick(now) {
+    var dt = Math.min(0.034, (now - last) / 1000), i, o, dr, drr;
+    last = now;
+    if (!visible()) { running = false; return; }
+    dr = Math.exp(-1.4 * dt); drr = Math.exp(-0.9 * dt);
+    for (i = 0; i < L.length; i++) {
+      o = L[i]; o.t += dt;
+      o.vx += Math.sin(o.t * 2.2 + o.ph) * 55 * dt;
+      o.vy += 170 * dt;
+      o.vx *= dr; o.vy *= dr;
+      o.x += o.vx * dt; o.y += o.vy * dt;
+      o.r += o.vr * dt; o.vr *= drr;
+      if (o.x < 10) { o.x = 10; o.vx = Math.abs(o.vx) * 0.6; }
+      if (o.x > W - 10) { o.x = W - 10; o.vx = -Math.abs(o.vx) * 0.6; }
+      if (o.y < -300) { o.y = -300; o.vy = Math.abs(o.vy) * 0.3; }
+      if (o.y > H + 50) { respawn(o, false); }
+      o.el.style.transform = 'translate(' + (o.x - o.s / 2).toFixed(1) + 'px,' + (o.y - o.s / 2).toFixed(1) + 'px) rotate(' + o.r.toFixed(1) + 'deg)';
+    }
+    requestAnimationFrame(tick);
+  }
+  setInterval(function () {
+    var i;
+    if (visible() && !running) {
+      W = box.clientWidth || 360; H = box.clientHeight || 640;
+      for (i = 0; i < L.length; i++) { respawn(L[i], true); }
+      running = true; last = (window.performance && performance.now) ? performance.now() : +new Date();
+      requestAnimationFrame(tick);
+    }
+  }, 150);
 })();
 </script>
 
